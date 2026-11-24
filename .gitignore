@@ -1,0 +1,40 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# PHP / JavaScript dependencies and reports
+/vendor/
+/node_modules/
+/.phpunit.cache/
+/coverage/
+/frontend/dist/
+
+# Runtime data: never commit private games or accounts
+/var/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
+*.backup
+*.bak
+*.log
+
+# Local tools and editors
+/.idea/
+/.vscode/
+!.vscode/extensions.json
+*.swp
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Local test artifacts
+/.phpunit.result.cache
+/test-results/
+/playwright-report/
