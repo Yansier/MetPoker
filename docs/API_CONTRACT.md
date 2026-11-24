@@ -4,16 +4,17 @@
 
 基址 `/api/v1`，JSON UTF-8，HTTPS only。字段使用 `snake_case`；时间为 UTC ISO-8601；金额为 JSON 整数，禁止浮点和数字字符串。成功响应：`{"data": ..., "meta": {"request_id": "..."}}`；错误响应：`{"error":{"code":"...","message":"中文安全提示","details":{}},"meta":{"request_id":"..."}}`。
 
-修改请求必须带 `X-Request-ID`（UUID/不可猜测唯一值）；资金和管理写操作将其作为幂等键。资源更新带 `If-Match: "<version>"` 或请求体 `expected_version`。列表使用不透明 cursor，限制 `limit` 1–100。服务端不向客户端返回堆栈、SQL、密码哈希、令牌哈希或内部牌局状态。
+修改请求必须带 `X-Request-ID`；去重唯一键为 `(principal_id, request_id)`，资金结算等业务键另行保证全局唯一。影响活跃房间/座位/桌栈的 HTTP 写请求必须转入权威房间命令邮箱，不得直接改表。金额为不超过 `1_000_000_000_000` 的安全整数。
 
 浏览器认证使用 `Secure; HttpOnly; SameSite=Lax` 会话 Cookie；所有非 GET 请求要求 CSRF 双提交令牌/自定义头并校验 Origin。登录、邀请和管理接口限速。WebSocket 通过短时一次性票据连接，不在 URL 长期携带会话令牌。
 
 ## 2. 权限符号
 
+- `U`：已认证但必须改密的受限账号，只能读取必要自身认证状态、改密和登出。
 - `P`：已登录且未禁用、已完成强制改密的普通/管理员账号。
 - `A`：管理员，后端逐接口验证；管理员参局仍只拥有 P 的牌局权限。
-- `G`：允许游客会话；仅限练习房。
-- `O`：房主，并不等于管理员。
+- `G`：有效游客 principal；仅能在获授权的练习房使用临时资源。
+- `O`：服务端验证的房主 principal，可为注册账号或练习房游客，不等于管理员/旁观者。
 - `Self`：只能操作/读取当前主体。
 
 ## 3. 身份与会话接口
@@ -21,33 +22,33 @@
 | 方法与路径 | 权限 | 请求/结果要点 |
 |---|---|---|
 | `POST /auth/login` | 公开 | username/password；轮换会话，返回自身账号投影与 CSRF token |
-| `POST /auth/logout` | P | 撤销当前会话 |
-| `POST /auth/change-password` | P | current_password（管理员重置后的首次改密可用重置会话证明）、new_password；撤销其他会话 |
-| `GET /auth/me` | P | 当前账号、关联 human player、权限和 must_change_password |
+| `POST /auth/logout` | U/P | 撤销当前受限或完整会话 |
+| `POST /auth/change-password` | U/P | 正常态用 current_password；重置态用一次性 reset credential；成功后轮换为完整会话并使凭证失效 |
+| `GET /auth/me` | U/P | 最小账号状态、must_change_password；U 不返回游戏/钱包入口数据 |
 | `GET /auth/sessions` | Self | 自己的活跃会话安全元数据 |
 | `DELETE /auth/sessions/{id}` | Self | 撤销指定自己的会话 |
 | `POST /guest-sessions` | 公开且开关启用 | display_name；创建短时游客会话，不创建 Account/Wallet |
-| `POST /registrations` | 公开注册开启或有效邀请码 | username/password/invite_code；创建 Account + Human Player + 初始钱包事务 |
+| `POST /registrations` | 公开注册开启或有效邀请码 | 邀请码默认 7 天/一次；消费与 Account + Human Player + 初始钱包同事务，并发只成功一次 |
 
-登录失败统一 `AUTH_INVALID_CREDENTIALS`，不枚举用户名。禁用账号立即撤销全部会话和 WS 票据；若正在手牌，牌局按掉线/离桌边界安全收尾，不没收已全押资格。
+登录失败统一 `AUTH_INVALID_CREDENTIALS`。管理员重置生成安全随机、仅存摘要、默认 15 分钟有效且一次性的 reset credential，撤销目标全部旧会话/未使用 WS ticket，并终止已认证 WS 连接的后续权限。账号禁用采取同样撤销/断连；当前手按掉线规则安全收尾，不因此作废或没收全押资格。U 状态不能进入游戏、获取 WS ticket、访问钱包或管理接口。
 
 ## 4. 房间与牌桌接口
 
 | 方法与路径 | 权限 | 说明 |
 |---|---|---|
-| `POST /rooms` | P；练习房可按设置 G | 创建房间，提交 type/config/password；返回 room_id/code 与版本 |
+| `POST /rooms` | P；练习房可 G | G 只能创建练习房并成为 guest owner；普通房 owner 必须为 P |
 | `GET /rooms/{id}` | P/G 且有邀请/密码权限 | 返回不含私牌的房间概要 |
 | `PATCH /rooms/{id}` | O | 更新配置；响应标注 `effective_immediately` 或 `effective_next_hand` |
 | `POST /rooms/{id}/join` | P/G | 加入成员/旁观；普通房拒绝 G |
-| `POST /rooms/{id}/seats/{seat}/requests` | P/G | 请求入座/买入；手牌中则 queued |
+| `POST /rooms/{id}/seats/{seat}/requests` | P/G 且非旁观授权 | G 仅练习房；请求入座/临时栈，手牌中 queued |
 | `DELETE /rooms/{id}/seats/{seat}` | Self 或 O 管理他人 | 请求离桌/踢出；公平相关操作延迟到手末 |
 | `POST /rooms/{id}/bots` | O | 添加启用机器人，手牌边界生效 |
 | `DELETE /rooms/{id}/bots/{player_id}` | O | 移除机器人，手牌边界生效 |
-| `POST /rooms/{id}/buy-ins` | P/Self | 普通房永久买入或追加；练习房走临时补充且字段明确 |
-| `POST /rooms/{id}/pause` | O/P | 仅一名真人时允许；多人返回规则冲突 |
-| `POST /rooms/{id}/resume` | O/P | 恢复单真人暂停房 |
-| `POST /rooms/{id}/close` | O/A | 正常或异常关闭；当前手按规则收尾/恢复，不直接抹账 |
-| `POST /rooms/{id}/ws-tickets` | P/G 且为成员 | 返回 30 秒有效、一次性、绑定 room/principal 的票据 |
+| `POST /rooms/{id}/buy-ins` | P/Self 或 G/Self | P 普通房永久买入；P/G 练习房仅补临时筹码，永不触达钱包 |
+| `POST /rooms/{id}/pause` | 当前唯一在座真人 P/G | 即时冻结当前手；旁观/未入座 owner 无权，房主暂停下一手使用配置命令 |
+| `POST /rooms/{id}/resume` | 发起/恢复该单真人暂停的在座 P/G | 恢复当前手；旁观者无权 |
+| `POST /rooms/{id}/close` | O/A | 正常关闭排队到当前手安全结算后；仅系统故障恢复能受审计作废，不得用关房撤销亏损 |
+| `POST /rooms/{id}/ws-tickets` | P/G 且有房间资源授权 | U/旁观越权请求拒绝；返回 30 秒一次性、绑定 room/principal 的票据 |
 
 实时动作不走 HTTP，统一使用 WS。房间密码只在 join 时验证，存储安全哈希，任何响应不返回密码/哈希。
 
@@ -56,13 +57,13 @@
 | 方法与路径 | 权限 | 说明 |
 |---|---|---|
 | `GET /players/me` | P | 自己的资料、钱包/托管合计和正式统计 |
-| `PATCH /players/me` | P | 修改允许字段（如展示名）；用户名首版不可改 |
-| `GET /players/{id}/public-profile` | P | 仅公开展示字段和允许公开的正式统计 |
+| `PATCH /players/me` | P | 仅可改展示昵称等白名单字段并审计；登录用户名和 Player ID 不可改 |
+| `GET /players/{id}/public-profile` | P | 仅公开展示字段/统计；机器人公开 difficulty，不返回 personality/策略参数 |
 | `GET /wallet/me/transactions` | P | 自己的正式资金流水；不混入练习筹码 |
 | `GET /hands` | P | 自己参与的正式手历史，cursor 分页 |
-| `GET /hands/{id}` | 参与者/A（仍按可见性） | 公共事件、自己的牌、实际公开牌；A 不获得额外私牌 |
+| `GET /hands/{id}` | 注册真人参与者；A 仍按参与关系 | 公共事件、实际公开牌，以及请求者本人加密保存的私牌；A 未参与时无他人私牌 |
 
-历史中的 `cards` 由投影器产生。任何 `hole_cards` 未在当时公开且不属于请求者，字段省略而非返回 null 暗示内部信息。
+历史将 `public_revealed_cards` 与 `my_private_hole_cards` 分离投影。后一字段仅对该有效正式手的注册真人本人解密；机器人未公开牌、作废手私牌和剩余牌堆不存在可查询记录。
 
 ## 6. 管理接口
 
@@ -73,7 +74,7 @@
 | `GET/POST /admin/accounts` | 查询/创建账号；创建响应不返回可复用明文密码 |
 | `PATCH /admin/accounts/{id}/status` | 禁用/解禁，要求理由；禁用撤销会话 |
 | `POST /admin/accounts/{id}/password-reset` | 生成一次性重置流程，撤销全部旧会话，置 must_change_password |
-| `GET/POST/PATCH /admin/bots...` | 创建及配置永久 Bot Player；绝不创建登录凭证 |
+| `GET/POST/PATCH /admin/bots...` | 创建及配置 Bot；性格/难度可管理，修改手末生效；普通接口只公开难度，不公开性格/参数 |
 | `POST /admin/wallet-adjustments` | player_id、amount（正/负）、reason；只改钱包、不可改 escrow |
 | `GET /admin/ledger-transactions` | 按 player/type/time 查询正式流水 |
 | `GET /admin/player-stats` | 真人/机器人正式统计 |

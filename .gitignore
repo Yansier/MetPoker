@@ -6,21 +6,29 @@
 *.key
 
 # PHP / JavaScript dependencies and reports
-/vendor/
-/node_modules/
-/.phpunit.cache/
-/coverage/
-/frontend/dist/
+vendor/
+node_modules/
+.phpunit.cache/
+.phpunit.result.cache
+coverage/
+dist/
+.vite/
+.vitest/
 
 # Runtime data: never commit private games or accounts
-/var/
+var/
 *.sqlite
 *.sqlite3
 *.db
 *.db-wal
 *.db-shm
+*.db-journal
 *.sqlite-wal
 *.sqlite-shm
+*.sqlite-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
 *.backup
 *.bak
 *.log
@@ -35,6 +43,6 @@
 Thumbs.db
 
 # Local test artifacts
-/.phpunit.result.cache
-/test-results/
-/playwright-report/
+test-results/
+playwright-report/
+.cache/

@@ -4,7 +4,9 @@
 
 ## 1. Windows 开发环境
 
-建议版本：Git、PHP 8.2+（扩展 PDO SQLite、mbstring、openssl、sodium）、Composer 2、Node.js 当前 LTS、npm。开发者复制 `.env.example` 为未跟踪的 `.env`，使用独立本地 SQLite 文件；不得把绝对个人路径写入提交配置。
+Phase 1B 最低要求：64 位 PHP 8.2+、Composer 2、与该 PHP 兼容的 PHPUnit 及其必要扩展、Git。后续阶段需 PDO、pdo_sqlite、sqlite3、mbstring、openssl、sodium。PDO SQLite、Node/npm 和 SQLite CLI 不是纯引擎 Phase 1B 的阻断项。开发者复制 `.env.example` 为未跟踪的 `.env`；不得把个人绝对路径写入提交配置。
+
+环境检查应先使用 `Get-Command`、`where.exe` 和明确的已安装路径，再运行 `php -v`、`php --ini`、`php -m`、`composer --version`；PATH 未命中不能单独证明未安装。检查不得扫描其他业务项目、修改全局 PATH/PHP 配置或擅自切换 Node 环境。
 
 规划命令（相应阶段加入配置后才可用）：
 
